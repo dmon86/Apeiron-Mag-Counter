@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <link rel="manifest" href="manifest.json">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Mag Calibrator Pro - Apeiron</title>
     <style>
         /* Base Theme: Dark Grey & Red */
-        body { font-family: system-ui, sans-serif; text-align: center; background: #121212; color: #e0e0e0; padding: 20px; }
+        body { font-family: system-ui, sans-serif; text-align: center; background: #121212; color: #e0e0e0; padding: 20px; overflow: hidden;             /* Locks scrolling */
+    touch-action: none;           /* Disables browser swipe gestures */
+    overscroll-behavior: none;    /* Removes iOS/Android rubber-band bounce */}
         
         .card { background: #1c1c1c; padding: 25px; border-radius: 12px; max-width: 500px; margin: auto; box-shadow: 0 8px 25px rgba(0,0,0,0.8); border-top: 4px solid #cc0000; }
         
