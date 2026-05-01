@@ -93,4 +93,215 @@
         
         <div class="data-readout">
             <div>Sensor <span class="highlight dist-color"><span id="distValue">--</span><span style="font-size:14px;"> mm</span></span></div>
-            <div style="border-left: 1px solid #333; padding-left: 20px;">HUD Calc <span class="highlight ammo-color">
+            <div style="border-left: 1px solid #333; padding-left: 20px;">HUD Calc <span class="highlight ammo-color"><span id="ammoValue">--</span><span style="font-size:14px;"> Rnd</span></span></div>
+        </div>
+
+        <div class="hud-preview-container">
+            <label>HUD Display Preview:</label>
+            <div class="hud-screen" id="hudPreviewText" style="color: #aa1111; opacity: 0.7; box-shadow: inset 0 0 5px rgba(255, 51, 51, 0.1);">WPN | M:-- | R:--</div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: flex-end; overflow: hidden;">
+            <div class="input-group" style="flex: 2;">
+                <label>Weapon (Max 8):</label>
+                <input type="text" id="weaponName" value="AR-15" maxlength="8">
+            </div>
+            <div class="input-group" style="flex: 1;">
+                <label>Mag #:</label>
+                <input type="number" id="magNum" value="1" min="1" max="99">
+            </div>
+            <div class="input-group" style="flex: 1;">
+                <label>Max Ammo:</label>
+                <input type="number" id="maxAmmo" value="30" min="1" max="60">
+            </div>
+        </div>
+
+        <hr>
+        
+        <div style="text-align: left; display: flex; justify-content: space-between; align-items: center;">
+            <label style="color: #fff; margin-bottom: 0;">Per-Round Distance Map</label>
+            <button id="autoFillBtn" style="width: auto; background: #222; border: 1px solid #cc0000; color: #ff3333; padding: 6px 12px; margin: 0;">Auto-Fill Linear</button>
+        </div>
+        
+        <div class="table-container" style="margin-top: 10px;">
+            <table>
+                <thead><tr><th>Rnd</th><th>Dist (mm)</th><th>Live Capture</th></tr></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <button id="saveBtn" style="font-size: 16px; padding: 15px;" disabled>Save Calibration to Mag</button>
+        <p id="status">Ready to connect.</p>
+    </div>
+
+    <script>
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const DISTANCE_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        const CONFIG_CHAR_UUID = "8c3b7a5e-2b72-4d2c-8060-e883e4757041";
+        const ODOMETER_CHAR_UUID = "e00a30b5-7798-4c17-8178-574d75d315f6"; 
+
+        let myDevice, distanceChar, configChar, odoChar;
+        let currentDist = 0;
+        let distArray = [];
+
+        function buildTable() {
+            const max = parseInt(document.getElementById('maxAmmo').value) || 30;
+            let html = '';
+            for(let i = 0; i <= max; i++) {
+                let val = distArray[i] !== undefined ? distArray[i] : 0;
+                html += `<tr>
+                            <td style="font-weight:bold; color:#ff4444;">${i}</td>
+                            <td><input type="number" id="dist_${i}" value="${val}" onchange="updateArray(${i})"></td>
+                            <td><button class="row-btn" onclick="grabLive(${i})">Grab Live</button></td>
+                         </tr>`;
+            }
+            document.getElementById('tableBody').innerHTML = html;
+            distArray.length = max + 1; 
+        }
+
+        function updateArray(index) {
+            distArray[index] = parseInt(document.getElementById(`dist_${index}`).value) || 0;
+            calculateLiveAmmo();
+        }
+
+        function grabLive(index) {
+            if(currentDist > 0) {
+                document.getElementById(`dist_${index}`).value = currentDist;
+                updateArray(index);
+            }
+        }
+
+        document.getElementById('autoFillBtn').addEventListener('click', () => {
+            const max = parseInt(document.getElementById('maxAmmo').value) || 30;
+            const emptyDist = parseInt(document.getElementById('dist_0').value) || 0;
+            const fullDist = parseInt(document.getElementById(`dist_${max}`).value) || 0;
+            if (emptyDist === 0 || fullDist === 0) { alert("Please grab live data for Round 0 and Max Round first."); return; }
+            for(let i = 1; i < max; i++) {
+                let interpolated = emptyDist + ((fullDist - emptyDist) * (i / max));
+                document.getElementById(`dist_${i}`).value = Math.round(interpolated);
+                distArray[i] = Math.round(interpolated);
+            }
+            calculateLiveAmmo();
+        });
+
+        document.getElementById('maxAmmo').addEventListener('change', buildTable);
+        buildTable();
+
+        function calculateLiveAmmo() {
+            if (distArray.length === 0 || distArray[0] === 0) {
+                document.getElementById('ammoValue').innerText = "--";
+                return;
+            }
+            let bestRound = 0; let smallestDiff = 9999;
+            const max = parseInt(document.getElementById('maxAmmo').value) || 30;
+            for(let i = 0; i <= max; i++) {
+                if (distArray[i] > 0) {
+                    let diff = Math.abs(currentDist - distArray[i]);
+                    if (diff < smallestDiff) { smallestDiff = diff; bestRound = i; }
+                }
+            }
+            document.getElementById('ammoValue').innerText = bestRound;
+            updateHudPreview(bestRound);
+        }
+
+        function updateHudPreview(ammoVal = "--") {
+            let weapon = document.getElementById('weaponName').value.trim().toUpperCase() || "WPN";
+            let magNum = document.getElementById('magNum').value || "0";
+            let hudElement = document.getElementById('hudPreviewText');
+            
+            let hudString = `${weapon} | M:${magNum} | R:${ammoVal}`;
+            if (ammoVal !== "--" && parseInt(ammoVal) === 0) hudString = `** ${weapon} | M:${magNum} | EMPTY **`;
+            
+            hudElement.innerText = hudString;
+
+            if (ammoVal !== "--" && parseInt(ammoVal) <= 5) {
+                hudElement.style.color = "#ff3333";
+                hudElement.style.opacity = "1.0";
+                hudElement.style.boxShadow = "inset 0 0 15px rgba(255, 51, 51, 0.4)";
+                hudElement.style.textShadow = "0 0 10px rgba(255, 51, 51, 0.8), 0 0 2px rgba(255, 255, 255, 0.5)";
+            } else {
+                hudElement.style.color = "#aa1111"; 
+                hudElement.style.opacity = "0.7";   
+                hudElement.style.boxShadow = "inset 0 0 5px rgba(255, 51, 51, 0.1)";
+                hudElement.style.textShadow = "none";
+            }
+        }
+
+        document.getElementById('weaponName').addEventListener('input', () => updateHudPreview(document.getElementById('ammoValue').innerText));
+        document.getElementById('magNum').addEventListener('input', () => updateHudPreview(document.getElementById('ammoValue').innerText));
+
+        document.getElementById('resetTripBtn').addEventListener('click', async () => {
+            if (!configChar) return;
+            try {
+                const encoder = new TextEncoder();
+                await configChar.writeValue(encoder.encode("RESET_TRIP"));
+                document.getElementById('tripDisplay').innerText = "0";
+                alert("Rounds Since Reset has been wiped back to 0.");
+            } catch (e) {
+                alert("Failed to reset count. Are you still connected?");
+            }
+        });
+
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            try {
+                document.getElementById('status').innerText = "Requesting Bluetooth...";
+                myDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'Mag' }], optionalServices: [SERVICE_UUID]
+                });
+                const server = await myDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                
+                distanceChar = await service.getCharacteristic(DISTANCE_CHAR_UUID);
+                configChar = await service.getCharacteristic(CONFIG_CHAR_UUID);
+                odoChar = await service.getCharacteristic(ODOMETER_CHAR_UUID);
+
+                const odoData = await odoChar.readValue();
+                const decoder = new TextDecoder('utf-8');
+                const odoString = decoder.decode(odoData);
+                const odoParts = odoString.split(",");
+                
+                document.getElementById('odoDisplay').innerText = odoParts[0] || "0";
+                document.getElementById('tripDisplay').innerText = odoParts[1] || "0";
+
+                await distanceChar.startNotifications();
+                distanceChar.addEventListener('characteristicvaluechanged', (e) => {
+                    currentDist = e.target.value.getUint16(0, true); 
+                    document.getElementById('distValue').innerText = currentDist;
+                    calculateLiveAmmo();
+                });
+
+                document.getElementById('status').innerText = "SYSTEM CONNECTED";
+                document.getElementById('status').style.color = "#ff4444";
+                document.getElementById('saveBtn').disabled = false;
+                document.getElementById('resetTripBtn').disabled = false;
+                document.getElementById('connectBtn').innerText = "Connected: " + myDevice.name;
+                document.getElementById('connectBtn').style.background = "#cc0000";
+            } catch (error) {
+                document.getElementById('status').innerText = "CONNECTION FAILED.";
+                document.getElementById('status').style.color = "#ff4444";
+            }
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            const maxAmmo = parseInt(document.getElementById('maxAmmo').value) || 30;
+            const magNum = document.getElementById('magNum').value;
+            let weaponName = document.getElementById('weaponName').value.trim().substring(0, 8) || "WPN";
+            
+            let dString = distArray.slice(0, maxAmmo + 1).join(',');
+            const configString = `W:${weaponName}|N:${magNum}|M:${maxAmmo}|D:${dString}`;
+            const encoder = new TextEncoder();
+            
+            try {
+                document.getElementById('status').innerText = "SAVING MAP TO MEMORY...";
+                document.getElementById('status').style.color = "#fff";
+                await configChar.writeValue(encoder.encode(configString));
+                document.getElementById('status').innerText = "CALIBRATION SAVED PERMANENTLY.";
+                document.getElementById('status').style.color = "#ff4444";
+            } catch (error) {
+                document.getElementById('status').innerText = "SAVE FAILED. CHECK CONNECTION.";
+                document.getElementById('status').style.color = "#ff4444";
+            }
+        });
+    </script>
+</body>
+</html>
